@@ -70,10 +70,23 @@ class HandTracker:
 
     def _draw_landmarks(self, frame, landmarks, color):
         pts = []
+        min_x = self._frame_w
+        max_x = 0
+        min_y = self._frame_h
+        max_y = 0
         for lm in landmarks:
             x = self._frame_w - int(lm.x * self._frame_w)
             y = int(lm.y * self._frame_h)
             pts.append((x, y))
+            min_x = min(min_x, x)
+            max_x = max(max_x, x)
+            min_y = min(min_y, y)
+            max_y = max(max_y, y)
+        
+        # Bounding box
+        padding = 20
+        cv2.rectangle(frame, (min_x - padding, min_y - padding), (max_x + padding, max_y + padding), color, 2)
+        
         for a, b in HAND_CONNECTIONS:
             cv2.line(frame, pts[a], pts[b], color, 2)
         for p in pts:
@@ -117,12 +130,13 @@ class HandTracker:
     def detect(self):
         success, frame = self.cap.read()
         if not success:
-            return None, None
+            return None, None, None
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
         result = self.detector.detect(mp_image)
         landmarks = result.hand_landmarks[0] if result.hand_landmarks else None
-        return landmarks, frame
+        handedness = result.handedness[0][0].category_name if result.handedness else None
+        return landmarks, handedness, frame
 
     def draw(self, frame, landmarks, info=None):
         if self.config.SHOW_PREVIEW and frame is not None:

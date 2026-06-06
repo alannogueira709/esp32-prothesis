@@ -28,14 +28,14 @@ class GestureController:
         print("[Controle] Iniciando controle gestual...")
         print("[Controle] Pressione ESC para sair")
         while True:
-            landmarks, frame = self.tracker.detect()
+            landmarks, handedness, frame = self.tracker.detect()
             angles = None
             gesture = None
             fingers = 0
             payload_json = None
 
             if landmarks:
-                angles, gesture, finger_openness = self.recognizer.recognize(landmarks)
+                angles, gesture, finger_openness = self.recognizer.recognize(landmarks, handedness)
                 if angles:
                     fingers = self._count_fingers(finger_openness)
                     self.comm.send(angles, gesture)

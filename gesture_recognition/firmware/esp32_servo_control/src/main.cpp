@@ -11,13 +11,21 @@ const int SERVO_MAX_PULSE = 2500;
 const int SERVO_MIN_ANGLE = 0;
 const int SERVO_MAX_ANGLE = 180;
 
+// Variáveis para suavização cinemática (Trapezoidal/Triangular)
+float current_angles[5] = {90.0, 90.0, 90.0, 90.0, 90.0};
+float current_velocities[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+int target_angles[5] = {90, 90, 90, 90, 90};
+
+const float MAX_VELOCITY = 4.0; // Velocidade máxima
+const float ACCELERATION = 0.5; // Aceleração
+
 const int BUFFER_SIZE = 256;
 char serial_buffer[BUFFER_SIZE];
 int buffer_index = 0;
 
 void set_servo(int channel, int angle) {
-    angle = constrain(angle, SERVO_MIN_ANGLE, SERVO_MAX_ANGLE);
-    int pulse = map(angle, SERVO_MIN_ANGLE, SERVO_MAX_ANGLE, SERVO_MIN_PULSE, SERVO_MAX_PULSE);
+    int clamped_angle = constrain(angle, SERVO_MIN_ANGLE, SERVO_MAX_ANGLE);
+    int pulse = map(clamped_angle, SERVO_MIN_ANGLE, SERVO_MAX_ANGLE, SERVO_MIN_PULSE, SERVO_MAX_PULSE);
     int duty = map(pulse, 0, 20000, 0, (1 << LEDC_RESOLUTION) - 1);
     ledcWrite(LEDC_CHANNELS[channel], duty);
 }
@@ -26,7 +34,43 @@ void setup_servos() {
     for (int i = 0; i < 5; i++) {
         ledcSetup(LEDC_CHANNELS[i], LEDC_FREQ, LEDC_RESOLUTION);
         ledcAttachPin(SERVO_PINS[i], LEDC_CHANNELS[i]);
-        set_servo(i, 90);
+        set_servo(i, (int)current_angles[i]);
+    }
+}
+
+void update_servos() {
+    for (int i = 0; i < 5; i++) {
+        float dist_to_target = target_angles[i] - current_angles[i];
+        
+        if (abs(dist_to_target) > 0.1) {
+            // Cálculo da velocidade de frenagem necessária para parar no alvo
+            float v_required_to_stop = sqrt(2.0 * ACCELERATION * abs(dist_to_target));
+            
+            // Perfil trapezoidal: acelera, cruza na max, desacelera
+            float v_setpoint = min(MAX_VELOCITY, v_required_to_stop);
+            
+            // Ajuste de direção
+            if (dist_to_target > 0) {
+                current_velocities[i] += ACCELERATION;
+                if (current_velocities[i] > v_setpoint) current_velocities[i] = v_setpoint;
+            } else {
+                current_velocities[i] -= ACCELERATION;
+                if (current_velocities[i] < -v_setpoint) current_velocities[i] = -v_setpoint;
+            }
+            
+            current_angles[i] += current_velocities[i];
+            
+            // Checagem final para evitar overshoot
+            if (abs(target_angles[i] - current_angles[i]) < abs(current_velocities[i])) {
+                current_angles[i] = target_angles[i];
+                current_velocities[i] = 0;
+            }
+            
+            set_servo(i, (int)current_angles[i]);
+        } else {
+            current_angles[i] = target_angles[i];
+            current_velocities[i] = 0;
+        }
     }
 }
 
@@ -43,15 +87,8 @@ void parse_and_execute(const char* json_string) {
     JsonArray angles = doc["s"];
     if (angles.size() == 5) {
         for (int i = 0; i < 5; i++) {
-            int angle = angles[i].as<int>();
-            set_servo(i, angle);
+            target_angles[i] = angles[i].as<int>();
         }
-        Serial.print(F("[OK] "));
-        for (int i = 0; i < 5; i++) {
-            Serial.print(angles[i].as<int>());
-            if (i < 4) Serial.print(",");
-        }
-        Serial.println();
     }
 
     const char* gesture = doc["g"];
@@ -65,7 +102,6 @@ void setup() {
     Serial.begin(115200);
     Serial.println(F("[ESP32-S3] Inicializando..."));
     setup_servos();
-    Serial.println(F("[ESP32-S3] Pronto. Formato: {\"s\":[0,45,90,135,180],\"g\":\"gesto\"}"));
 }
 
 void loop() {
@@ -81,4 +117,6 @@ void loop() {
             serial_buffer[buffer_index++] = c;
         }
     }
+    update_servos();
+    delay(10); 
 }

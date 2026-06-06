@@ -3,11 +3,19 @@ from .config import Config
 class GestureRecognizer:
     def __init__(self, config: Config):
         self.config = config
-    def recognize(self, landmarks):
+    def recognize(self, landmarks, handedness=None):
         if not landmarks:
-            return None, None
+            return None, None, None
+        
+        # Normalização: se for mão esquerda, espelhar horizontalmente
+        if handedness == "Left":
+            for lm in landmarks:
+                lm.x = 1.0 - lm.x
+        
         h, w = 1, 1
-        palm_width = self._dist(landmarks[5], landmarks[17])
+        # Usa a distância entre o pulso (0) e a base do dedo médio (9) como referência de tamanho,
+        # pois é menos sensível à rotação da mão do que a largura da palma (5-17).
+        palm_width = self._dist(landmarks[0], landmarks[9])
         angles = []
         finger_openness = {}
         for name, (tip, mcp, _) in self.config.DEDOS.items():
@@ -75,10 +83,10 @@ class GestureRecognizer:
               all(finger[f] < self.config.GESTURE_THRESHOLD_CLOSED
                 for f in ("meio", "anelar", "mindinho")):
                 return "faz o L"
-        if finger["polegar"] > self.config.GESTURE_THRESHOLD_OPEN and \
-           finger["indicador"] > self.config.GESTURE_THRESHOLD_OPEN and \
-           finger["mindinho"] > self.config.GESTURE_THRESHOLD_OPEN and \
-              all(finger[f] < self.config.GESTURE_THRESHOLD_CLOSED
-                for f in ("meio", "anelar")):
+        # Gesto ROCK!!: Mais permissivo que os limiares globais
+        if finger["polegar"] > 0.6 and \
+           finger["indicador"] > 0.6 and \
+           finger["mindinho"] > 0.6 and \
+           all(finger[f] < 0.45 for f in ("meio", "anelar")):
                 return "ROCK!!"
         return None;
